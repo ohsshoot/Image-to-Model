@@ -21,6 +21,9 @@ def load_preprocess(path):
 
 
 def model_vertex_creator():
+
+    # Currently model is a DCGAN
+
     global h,w,channels
     a_input = layers.Input(shape=(6,w,h,channels))
     x = layers.Flatten()(a_input)
@@ -44,8 +47,8 @@ def model_vertex_discriminator():
     b_input = layers.Input(shape=(8,3))
     x = layers.Conv1D(64,(1),activation="relu")(b_input)
     x = layers.Flatten()(x)
-    x = layers.Dropout(0.3)(x)
-    x = layers.Dense(1, activation="sigmoid")(x)
+    x = layers.Dropout(0.3)(x)                  # Without dropout on D, D will always outtrain G early
+    x = layers.Dense(1, activation="sigmoid")(x)# and G will never learn how to trick D.
     
     model = tf.keras.models.Model(b_input,x)
     return model
@@ -58,6 +61,9 @@ def parse(obj_file):
             parsed.append([float(x.replace("\n","")) for x in i.split(" ")[1:]])
     return parsed
 
+
+# Training parameters here (learning rate etc.) are an absolute nightmare
+# and the slightest tweak can make or break the learning process
 vertex_model = model_vertex_creator()
 vertex_optimizer = tf.keras.optimizers.Adam(lr=0.0006, clipvalue=1.0, decay=1e-8,beta_1=0.5)
 vertex_model.compile(optimizer=vertex_optimizer,loss="binary_crossentropy")
@@ -141,10 +147,15 @@ checkpoint = tf.train.Checkpoint(vertex_model=vertex_model,
 checkpoint.restore(tf.train.latest_checkpoint(checkpoint_dir))
 
 raw_data = np.reshape(raw_data, (len(raw_data),6,h,w,channels))
+
+
+# Actual training process:
+
 for i in range(EPOCHS):
 
     if i % 100 == 0:
 
+        # Save progress
         checkpoint.save(file_prefix = checkpoint_prefix)
 
         out = []
@@ -152,6 +163,8 @@ for i in range(EPOCHS):
             out.append(x)
         out_str = "out_at_epoch_{}.obj".format(i)
         print(out)
+
+        # Save current predictions of G
         f = open(out_str,"w+")
         f.write("o Cube\n")
         for x in out[0][0:]:
@@ -160,6 +173,10 @@ for i in range(EPOCHS):
             f.write("v {0} {1} {2}\n".format(x[0],x[1],x[2]))
 
 
+    #... and train for another epoch
+
+    # right now all data is trained every epoch which is an absolutely
+    # awful idea
     generated_objs = vertex_model.predict(raw_data, steps=1)
     combined_obj = np.concatenate([generated_objs,raw_labels])
 
@@ -177,6 +194,8 @@ for i in range(EPOCHS):
     print("GAN LOSS: {0}".format(a_loss))
 
 
+
+# -- Saving data after the fact -- #
 
 f = open("graph_raw.txt","w+")
 for l in [(str(history[x][0])+","+str(history[x][1])+";\n") for x,i in enumerate(history)]:
